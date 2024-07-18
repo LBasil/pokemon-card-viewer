@@ -8,6 +8,9 @@
         <link rel="stylesheet" href="styles.css">
     </head>
     <body>
+        <div id="loading-overlay">
+            <div id="loading-spinner"></div>
+        </div>
         <nav class="navbar navbar-expand-lg navbar-light bg-light fixed-top">
             <a class="navbar-brand" href="#">Pokémon TCG</a>
             <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -89,10 +92,9 @@
                                 <p><strong>Attaques:</strong> <span id="modal-card-attacks"></span></p>
                                 <p><strong>Faiblesses:</strong> <span id="modal-card-weaknesses"></span></p>
                                 <p><strong>Résistances:</strong> <span id="modal-card-resistances"></span></p>
-                                <button class="btn btn-primary" id="add-to-collection-btn" onclick="addToCollection()">Ajouter à la collection</button>
-                                <button class="btn btn-secondary" id="add-to-deck-btn" onclick="addToDeck()">Ajouter au deck</button>
-                                <button class="btn btn-danger" id="remove-from-collection-btn" style="display: none;" onclick="removeFromCollection()">Retirer de la collection</button>
-                                <button class="btn btn-danger" id="remove-from-deck-btn" style="display: none;" onclick="removeFromDeck()">Retirer du deck</button>
+                                <p><strong>Coût de retraite:</strong> <span id="modal-card-retreat-cost"></span></p>
+                                <button class="btn btn-primary" id="collection-button" onclick="toggleCollection()">Ajouter à la collection</button>
+                                <button class="btn btn-secondary" id="deck-button" onclick="toggleDeck()">Ajouter au deck</button>
                             </div>
                         </div>
                         <div id="modal-card-id" style="display: none;"></div>
@@ -100,7 +102,6 @@
                 </div>
             </div>
         </div>
-        
         <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>
         <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
