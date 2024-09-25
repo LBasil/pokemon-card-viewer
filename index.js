@@ -25,8 +25,7 @@
         });
     });
 
-    // Clé API (remplace 'YOUR_API_KEY' par ta clé API)
-    const API_KEY = 'YOUR_API_KEY';
+    const API_KEY = process.env.API_KEY;
     const API_URL = 'https://api.pokemontcg.io/v2';
 
     // Fonction pour obtenir des cartes aléatoires et les afficher dans l'accueil
