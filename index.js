@@ -1,5 +1,7 @@
 const config = {
-    API_KEY: "82b1953f-af42-4e3a-9700-16444065f44b",
+    // Clé API volontairement absente : le code est servi tel quel au navigateur, donc toute clé y serait publique.
+    // L'API pokemontcg.io fonctionne sans clé (quota réduit).
+    API_KEY: "",
     BASE_URL: "https://api.pokemontcg.io/v2",
 };
 
@@ -31,6 +33,7 @@ document.querySelectorAll('.nav-link').forEach(link => {
 
 const API_KEY = config.API_KEY;
 const API_URL = config.BASE_URL;
+const API_HEADERS = API_KEY ? { 'X-Api-Key': API_KEY } : {};
 
 // Fonction pour obtenir des cartes aléatoires et les afficher dans l'accueil
 async function fetchRandomCards() {
@@ -38,7 +41,7 @@ async function fetchRandomCards() {
     try {
         // Récupérer un grand nombre de cartes (par exemple, 100) pour choisir parmi elles aléatoirement
         const response = await fetch(`${API_URL}/cards?pageSize=100`, {
-            headers: { 'X-Api-Key': API_KEY }
+            headers: API_HEADERS
         });
         const data = await response.json();
         hideSpinner();
@@ -75,7 +78,7 @@ async function fetchRandomCards() {
 async function fetchSets() {
     showSpinner();
     const response = await fetch(`${API_URL}/sets`, {
-        headers: { 'X-Api-Key': API_KEY }
+        headers: API_HEADERS
     });
     const data = await response.json();
     hideSpinner();
@@ -91,7 +94,7 @@ async function fetchSetCards() {
     if (!setId) return;
     showSpinner();
     const response = await fetch(`${API_URL}/cards?q=set.id:${setId}`, {
-        headers: { 'X-Api-Key': API_KEY }
+        headers: API_HEADERS
     });
     const data = await response.json();
     hideSpinner();
@@ -116,7 +119,7 @@ async function searchCards() {
     if (!query) return;
     showSpinner();
     const response = await fetch(`${API_URL}/cards?q=name:${query}`, {
-        headers: { 'X-Api-Key': API_KEY }
+        headers: API_HEADERS
     });
     const data = await response.json();
     hideSpinner();
@@ -145,7 +148,7 @@ async function searchCards() {
 async function showCardDetails(cardId) {
     showSpinner();
     const response = await fetch(`${API_URL}/cards/${cardId}`, {
-        headers: { 'X-Api-Key': API_KEY }
+        headers: API_HEADERS
     });
     const data = await response.json();
     hideSpinner();
@@ -259,7 +262,7 @@ function loadCollection() {
     container.innerHTML = '';
     collection.forEach(async cardId => {
         const response = await fetch(`${API_URL}/cards/${cardId}`, {
-            headers: { 'X-Api-Key': API_KEY }
+            headers: API_HEADERS
         });
         const data = await response.json();
         const card = data.data;
@@ -281,7 +284,7 @@ function loadDecks() {
     container.innerHTML = '';
     decks.forEach(async cardId => {
         const response = await fetch(`${API_URL}/cards/${cardId}`, {
-            headers: { 'X-Api-Key': API_KEY }
+            headers: API_HEADERS
         });
         const data = await response.json();
         const card = data.data;
