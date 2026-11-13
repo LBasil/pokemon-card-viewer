@@ -1,6 +1,6 @@
 # Pokémon Card Viewer
 
-Visionneuse de cartes Pokémon : sets, cartes, favoris enregistrés dans le `localStorage`. JavaScript vanilla et Bootstrap 4, données de l'API [pokemontcg.io](https://pokemontcg.io/).
+Visionneuse de cartes Pokémon : choix d'une extension, liste des cartes, collection et decks enregistrés dans le `localStorage`. JavaScript vanilla et Bootstrap 4, données de l'API [pokemontcg.io](https://pokemontcg.io/).
 
 ## Lancer
 
