@@ -1,301 +1,217 @@
-const config = {
-    // Clé API volontairement absente : le code est servi tel quel au navigateur, donc toute clé y serait publique.
-    // L'API pokemontcg.io fonctionne sans clé (quota réduit).
-    API_KEY: "",
-    BASE_URL: "https://api.pokemontcg.io/v2",
-};
+const API_URL = 'https://api.pokemontcg.io/v2';
+// Pas de clé d'API : le code est servi tel quel au navigateur, une clé y serait publique.
+// L'API fonctionne sans clé, avec un quota réduit.
+const REQUEST_TIMEOUT_MS = 15000;
 
-// Fonction pour montrer le spinner
-function showSpinner() {
-    document.getElementById('loading-overlay').style.display = 'flex';
+const { escapeHtml, buildNameQuery, buildIdsQuery, readList, writeList, toggleId, sortByIds, renderCard, listOrNone } = CardLib;
+
+const $ = (id) => document.getElementById(id);
+let currentCard = null;
+let loadingCount = 0;
+
+// --- Affichage de l'état (chargement, erreurs, confirmations) ---
+
+function setLoading(on) {
+    loadingCount = Math.max(0, loadingCount + (on ? 1 : -1));
+    $('loading-overlay').style.display = loadingCount > 0 ? 'flex' : 'none';
 }
 
-// Fonction pour cacher le spinner
-function hideSpinner() {
-    document.getElementById('loading-overlay').style.display = 'none';
+function showStatus(message, isError) {
+    const status = $('status');
+    status.textContent = message;
+    status.className = 'alert ' + (isError ? 'alert-danger' : 'alert-success');
+    status.style.display = message ? 'block' : 'none';
+    clearTimeout(showStatus.timer);
+    if (message && !isError) showStatus.timer = setTimeout(() => showStatus(''), 3000);
 }
 
-// Fonction pour basculer entre les onglets
+// --- Accès à l'API ---
+
+async function apiGet(path) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+        const response = await fetch(`${API_URL}${path}`, { signal: controller.signal });
+        if (response.status === 429) throw new Error('Trop de requêtes : réessaie dans une minute.');
+        if (!response.ok) throw new Error(`Erreur de l'API (${response.status}).`);
+        return (await response.json()).data;
+    } catch (error) {
+        if (error.name === 'AbortError') throw new Error("L'API met trop de temps à répondre.");
+        if (error instanceof TypeError) throw new Error('Connexion impossible. Vérifie ta connexion internet.');
+        throw error;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/** Lance une opération avec spinner et message d'erreur lisible. */
+async function withLoading(task) {
+    setLoading(true);
+    try {
+        return await task();
+    } catch (error) {
+        showStatus(error.message, true);
+    } finally {
+        setLoading(false);
+    }
+}
+
+function showCards(containerId, cards) {
+    $(containerId).innerHTML = cards.map(renderCard).join('');
+}
+
+// --- Onglets ---
+
 function showTab(tabId) {
-    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('d-none'));
-    document.getElementById(tabId).classList.remove('d-none');
+    document.querySelectorAll('.tab-content').forEach((tab) => tab.classList.add('d-none'));
+    $(tabId).classList.remove('d-none');
+    if (tabId === 'collection') loadSavedCards();
 }
 
-// Écouter les clics sur les onglets de navigation
-document.querySelectorAll('.nav-link').forEach(link => {
-    link.addEventListener('click', function(event) {
+document.querySelectorAll('.nav-link').forEach((link) => {
+    link.addEventListener('click', (event) => {
         event.preventDefault();
         document.querySelector('.nav-item.active').classList.remove('active');
-        this.parentElement.classList.add('active');
-        showTab(this.getAttribute('href').substring(1));
+        link.parentElement.classList.add('active');
+        showTab(link.getAttribute('href').substring(1));
     });
 });
 
-const API_KEY = config.API_KEY;
-const API_URL = config.BASE_URL;
-const API_HEADERS = API_KEY ? { 'X-Api-Key': API_KEY } : {};
+// --- Accueil, sets, recherche ---
 
-// Fonction pour obtenir des cartes aléatoires et les afficher dans l'accueil
-async function fetchRandomCards() {
-    showSpinner();
-    try {
-        // Récupérer un grand nombre de cartes (par exemple, 100) pour choisir parmi elles aléatoirement
-        const response = await fetch(`${API_URL}/cards?pageSize=100`, {
-            headers: API_HEADERS
-        });
-        const data = await response.json();
-        hideSpinner();
-
-        const allCards = data.data;
-        
-        // Sélectionner 9 cartes aléatoires parmi les 100
-        const randomCards = [];
-        while (randomCards.length < 9 && allCards.length > 0) {
-            const randomIndex = Math.floor(Math.random() * allCards.length);
-            randomCards.push(allCards.splice(randomIndex, 1)[0]);
-        }
-
-        const container = document.getElementById('random-cards-container');
-        container.innerHTML = '';
-        randomCards.forEach(card => {
-            container.innerHTML += `
-                <div class="card" onclick="showCardDetails('${card.id}')">
-                    <img src="${card.images.small}" class="card-img-top" alt="${card.name}">
-                    <div class="card-body">
-                        <h5 class="card-title">${card.name}</h5>
-                        <p class="card-text">${card.set.name}</p>
-                    </div>
-                </div>
-            `;
-        });
-    } catch (error) {
-        console.error('Error fetching random cards:', error);
-        hideSpinner();
-    }
-}
-
-// Fonction pour obtenir tous les sets et remplir la liste déroulante
-async function fetchSets() {
-    showSpinner();
-    const response = await fetch(`${API_URL}/sets`, {
-        headers: API_HEADERS
-    });
-    const data = await response.json();
-    hideSpinner();
-    const select = document.getElementById('set-select');
-    data.data.forEach(set => {
-        select.innerHTML += `<option value="${set.id}">${set.name}</option>`;
+function fetchRandomCards() {
+    // Une page au hasard parmi les premières, plutôt que toujours les mêmes cartes.
+    const page = 1 + Math.floor(Math.random() * 50);
+    return withLoading(async () => {
+        const cards = await apiGet(`/cards?pageSize=9&page=${page}&select=id,name,images,set`);
+        showCards('random-cards-container', cards);
     });
 }
 
-// Fonction pour obtenir les cartes d'un set sélectionné
-async function fetchSetCards() {
-    const setId = document.getElementById('set-select').value;
+function fetchSets() {
+    return withLoading(async () => {
+        const sets = await apiGet('/sets?select=id,name&orderBy=-releaseDate');
+        $('set-select').innerHTML =
+            '<option value="">Sélectionner un set</option>' +
+            sets.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join('');
+    });
+}
+
+function fetchSetCards() {
+    const setId = $('set-select').value;
     if (!setId) return;
-    showSpinner();
-    const response = await fetch(`${API_URL}/cards?q=set.id:${setId}`, {
-        headers: API_HEADERS
-    });
-    const data = await response.json();
-    hideSpinner();
-    const container = document.getElementById('set-container');
-    container.innerHTML = '';
-    data.data.forEach(card => {
-        container.innerHTML += `
-            <div class="card" onclick="showCardDetails('${card.id}')">
-                <img src="${card.images.small}" class="card-img-top" alt="${card.name}">
-                <div class="card-body">
-                    <h5 class="card-title">${card.name}</h5>
-                    <p class="card-text">${card.set.name}</p>
-                </div>
-            </div>
-        `;
+    return withLoading(async () => {
+        const cards = await apiGet(`/cards?q=${encodeURIComponent(`set.id:"${setId}"`)}&select=id,name,images,set`);
+        showCards('set-container', cards);
     });
 }
 
-// Fonction pour chercher des cartes par nom de Pokémon
-async function searchCards() {
-    const query = document.getElementById('search-input').value;
+function searchCards() {
+    const query = buildNameQuery($('search-input').value);
     if (!query) return;
-    showSpinner();
-    const response = await fetch(`${API_URL}/cards?q=name:${query}`, {
-        headers: API_HEADERS
+    return withLoading(async () => {
+        const cards = await apiGet(`/cards?q=${encodeURIComponent(query)}&pageSize=60&select=id,name,images,set`);
+        showCards('cards-container', cards);
+        $('error-message').style.display = cards.length === 0 ? 'block' : 'none';
     });
-    const data = await response.json();
-    hideSpinner();
-    const container = document.getElementById('cards-container');
-    const errorMessage = document.getElementById('error-message');
-    container.innerHTML = '';
-    if (data.data.length === 0) {
-        errorMessage.style.display = 'block';
-    } else {
-        errorMessage.style.display = 'none';
-        data.data.forEach(card => {
-            container.innerHTML += `
-                <div class="card" onclick="showCardDetails('${card.id}')">
-                    <img src="${card.images.small}" class="card-img-top" alt="${card.name}">
-                    <div class="card-body">
-                        <h5 class="card-title">${card.name}</h5>
-                        <p class="card-text">${card.set.name}</p>
-                    </div>
-                </div>
-            `;
-        });
-    }
 }
 
-// Fonction pour montrer les détails d'une carte dans une modal
+// --- Détails d'une carte ---
+
 async function showCardDetails(cardId) {
-    showSpinner();
-    const response = await fetch(`${API_URL}/cards/${cardId}`, {
-        headers: API_HEADERS
-    });
-    const data = await response.json();
-    hideSpinner();
-    const card = data.data;
-    document.getElementById('modal-card-image').src = card.images.large;
-    document.getElementById('modal-card-name').textContent = card.name;
-    document.getElementById('modal-card-set').textContent = card.set.name;
-    document.getElementById('modal-card-type').textContent = card.types ? card.types.join(', ') : 'Unknown';
-    document.getElementById('modal-card-rarity').textContent = card.rarity ? card.rarity : 'Unknown';
-    document.getElementById('modal-card-hp').textContent = card.hp ? card.hp : 'Unknown';
-    document.getElementById('modal-card-attacks').textContent = card.attacks ? card.attacks.map(attack => attack.name).join(', ') : 'None';
-    document.getElementById('modal-card-weaknesses').textContent = card.weaknesses ? card.weaknesses.map(weakness => weakness.type + ' (' + weakness.value + ')').join(', ') : 'None';
-    document.getElementById('modal-card-resistances').textContent = card.resistances ? card.resistances.map(resistance => resistance.type + ' (' + resistance.value + ')').join(', ') : 'None';
-    document.getElementById('modal-card-retreat-cost').textContent = card.retreatCost ? card.retreatCost.join(', ') : 'None';
-    document.getElementById('modal-card-id').textContent = card.id; // Ajout de l'ID de la carte dans la modal
-
-    // Vérifier si la carte est dans la collection ou le deck
-    let collection = JSON.parse(localStorage.getItem('collection')) || [];
-    let decks = JSON.parse(localStorage.getItem('decks')) || [];
-    const collectionButton = document.getElementById('collection-button');
-    const deckButton = document.getElementById('deck-button');
-
-    if (collection.includes(card.id)) {
-        collectionButton.textContent = 'Supprimer de la collection';
-        collectionButton.onclick = removeFromCollection;
-    } else {
-        collectionButton.textContent = 'Ajouter à la collection';
-        collectionButton.onclick = addToCollection;
-    }
-
-    if (decks.includes(card.id)) {
-        deckButton.textContent = 'Supprimer du deck';
-        deckButton.onclick = removeFromDeck;
-    } else {
-        deckButton.textContent = 'Ajouter au deck';
-        deckButton.onclick = addToDeck;
-    }
-
-    $('#cardModal').modal('show');
+    const card = await withLoading(() => apiGet(`/cards/${encodeURIComponent(cardId)}`));
+    if (!card) return;
+    currentCard = card;
+    $('modal-card-image').src = card.images.large;
+    $('modal-card-image').alt = card.name;
+    $('modal-card-name').textContent = card.name;
+    $('modal-card-set').textContent = card.set.name;
+    $('modal-card-type').textContent = listOrNone(card.types);
+    $('modal-card-rarity').textContent = card.rarity || 'Inconnue';
+    $('modal-card-hp').textContent = card.hp || 'Inconnu';
+    $('modal-card-attacks').textContent = listOrNone(card.attacks, (a) => a.name);
+    $('modal-card-weaknesses').textContent = listOrNone(card.weaknesses, (w) => `${w.type} (${w.value})`);
+    $('modal-card-resistances').textContent = listOrNone(card.resistances, (r) => `${r.type} (${r.value})`);
+    $('modal-card-retreat-cost').textContent = listOrNone(card.retreatCost);
+    updateModalButtons();
+    window.jQuery('#cardModal').modal('show');
 }
 
-// Fonction pour basculer entre les thèmes clair et sombre
-document.getElementById('theme-toggle').addEventListener('click', () => {
+// --- Collection et deck (stockés dans le navigateur) ---
+
+const LISTS = { collection: 'collection', deck: 'decks' };
+
+function updateModalButtons() {
+    const inCollection = readList(localStorage, LISTS.collection).includes(currentCard.id);
+    const inDeck = readList(localStorage, LISTS.deck).includes(currentCard.id);
+    $('collection-button').textContent = inCollection ? 'Supprimer de la collection' : 'Ajouter à la collection';
+    $('deck-button').textContent = inDeck ? 'Supprimer du deck' : 'Ajouter au deck';
+}
+
+function toggleSaved(kind, label) {
+    if (!currentCard) return;
+    const key = LISTS[kind];
+    const before = readList(localStorage, key);
+    const after = toggleId(before, currentCard.id);
+    if (!writeList(localStorage, key, after)) {
+        showStatus("Impossible d'enregistrer : le stockage du navigateur est indisponible.", true);
+        return;
+    }
+    showStatus(after.length > before.length ? `Carte ajoutée ${label}.` : `Carte retirée ${label}.`, false);
+    window.jQuery('#cardModal').modal('hide');
+    loadSavedCards();
+}
+
+async function loadSavedList(kind, containerId) {
+    const ids = readList(localStorage, LISTS[kind]);
+    if (ids.length === 0) {
+        $(containerId).innerHTML = '<p class="text-muted">Rien ici pour l\'instant.</p>';
+        return;
+    }
+    // Une seule requête pour toute la liste.
+    const cards = await apiGet(`/cards?q=${encodeURIComponent(buildIdsQuery(ids))}&pageSize=${ids.length}&select=id,name,images,set`);
+    showCards(containerId, sortByIds(cards, ids));
+}
+
+function loadSavedCards() {
+    return withLoading(async () => {
+        await loadSavedList('collection', 'collection-container');
+        await loadSavedList('deck', 'deck-container');
+    });
+}
+
+// --- Branchements ---
+
+// Un seul écouteur pour toutes les vignettes, présentes et futures.
+document.addEventListener('click', (event) => {
+    const card = event.target.closest('[data-card-id]');
+    if (card) showCardDetails(card.dataset.cardId);
+});
+document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const card = event.target.closest && event.target.closest('[data-card-id]');
+    if (card) {
+        event.preventDefault();
+        showCardDetails(card.dataset.cardId);
+    }
+});
+
+$('search-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    searchCards();
+});
+$('set-select').addEventListener('change', fetchSetCards);
+$('collection-button').addEventListener('click', () => toggleSaved('collection', 'à la collection'));
+$('deck-button').addEventListener('click', () => toggleSaved('deck', 'au deck'));
+
+$('theme-toggle').addEventListener('click', () => {
     document.body.classList.toggle('dark-theme');
     const isDark = document.body.classList.contains('dark-theme');
-    document.getElementById('theme-toggle').textContent = isDark ? 'Mode clair' : 'Mode sombre';
+    $('theme-toggle').textContent = isDark ? 'Mode clair' : 'Mode sombre';
+    $('theme-toggle').setAttribute('aria-pressed', String(isDark));
 });
 
-// Fonction pour charger les cartes aléatoires et les sets au chargement de la page
 document.addEventListener('DOMContentLoaded', () => {
     fetchRandomCards();
     fetchSets();
-    loadCollection();
-    loadDecks();
 });
-
-// Fonctions pour la collection et les decks
-function addToCollection() {
-    const cardId = document.getElementById('modal-card-id').textContent;
-    let collection = JSON.parse(localStorage.getItem('collection')) || [];
-    if (!collection.includes(cardId)) {
-        collection.push(cardId);
-        localStorage.setItem('collection', JSON.stringify(collection));
-        alert('Carte ajoutée à la collection!');
-        loadCollection();
-    }
-    $('#cardModal').modal('hide');
-}
-
-function removeFromCollection() {
-    const cardId = document.getElementById('modal-card-id').textContent;
-    let collection = JSON.parse(localStorage.getItem('collection')) || [];
-    const index = collection.indexOf(cardId);
-    if (index > -1) {
-        collection.splice(index, 1);
-        localStorage.setItem('collection', JSON.stringify(collection));
-        alert('Carte supprimée de la collection!');
-        loadCollection();
-    }
-    $('#cardModal').modal('hide');
-}
-
-function addToDeck() {
-    const cardId = document.getElementById('modal-card-id').textContent;
-    let decks = JSON.parse(localStorage.getItem('decks')) || [];
-    if (!decks.includes(cardId)) {
-        decks.push(cardId);
-        localStorage.setItem('decks', JSON.stringify(decks));
-        alert('Carte ajoutée au deck!');
-        loadDecks();
-    }
-    $('#cardModal').modal('hide');
-}
-
-function removeFromDeck() {
-    const cardId = document.getElementById('modal-card-id').textContent;
-    let decks = JSON.parse(localStorage.getItem('decks')) || [];
-    const index = decks.indexOf(cardId);
-    if (index > -1) {
-        decks.splice(index, 1);
-        localStorage.setItem('decks', JSON.stringify(decks));
-        alert('Carte supprimée du deck!');
-        loadDecks();
-    }
-    $('#cardModal').modal('hide');
-}
-
-function loadCollection() {
-    const collection = JSON.parse(localStorage.getItem('collection')) || [];
-    const container = document.getElementById('collection-container');
-    container.innerHTML = '';
-    collection.forEach(async cardId => {
-        const response = await fetch(`${API_URL}/cards/${cardId}`, {
-            headers: API_HEADERS
-        });
-        const data = await response.json();
-        const card = data.data;
-        container.innerHTML += `
-            <div class="card" onclick="showCardDetails('${card.id}')">
-                <img src="${card.images.small}" class="card-img-top" alt="${card.name}">
-                <div class="card-body">
-                    <h5 class="card-title">${card.name}</h5>
-                    <p class="card-text">${card.set.name}</p>
-                </div>
-            </div>
-        `;
-    });
-}
-
-function loadDecks() {
-    const decks = JSON.parse(localStorage.getItem('decks')) || [];
-    const container = document.getElementById('deck-container');
-    container.innerHTML = '';
-    decks.forEach(async cardId => {
-        const response = await fetch(`${API_URL}/cards/${cardId}`, {
-            headers: API_HEADERS
-        });
-        const data = await response.json();
-        const card = data.data;
-        container.innerHTML += `
-            <div class="card" onclick="showCardDetails('${card.id}')">
-                <img src="${card.images.small}" class="card-img-top" alt="${card.name}">
-                <div class="card-body">
-                    <h5 class="card-title">${card.name}</h5>
-                    <p class="card-text">${card.set.name}</p>
-                </div>
-            </div>
-        `;
-    });
-}
