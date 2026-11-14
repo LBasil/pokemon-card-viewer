@@ -5,5 +5,8 @@
   "description": "Parcours les cartes Pokémon par extension, compose ta collection et tes decks.",
   "engines": {
     "node": "26.x"
+  },
+  "scripts": {
+    "test": "node --test"
   }
 }
