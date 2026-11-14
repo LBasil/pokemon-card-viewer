@@ -1,0 +1,9 @@
+{
+  "name": "pokemon-card-viewer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Parcours les cartes Pokémon par extension, compose ta collection et tes decks.",
+  "engines": {
+    "node": "26.x"
+  }
+}
